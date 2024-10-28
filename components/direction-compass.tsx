@@ -56,12 +56,16 @@ export function DirectionCompass() {
     const y = Math.sin(toRadians(destination.longitude - currentPosition.longitude))
     const x = Math.cos(toRadians(currentPosition.latitude)) * Math.tan(toRadians(destination.latitude)) -
               Math.sin(toRadians(currentPosition.latitude)) * Math.cos(toRadians(destination.longitude - currentPosition.longitude))
+
     let bearing = Math.atan2(y, x)
     bearing = toDegrees(bearing)
-    bearing = (bearing + 360) % 360
+    bearing = (bearing + 360) % 360 // 方角を0-360度に正規化
 
-    setDirection(bearing - heading)
+    // 相対的な方角を計算
+    const relativeDirection = (bearing - heading + 360) % 360
+    setDirection(relativeDirection)
   }, [currentPosition, destination, heading])
+
 
   const toRadians = (degrees: number) => degrees * (Math.PI / 180)
   const toDegrees = (radians: number) => radians * (180 / Math.PI)
