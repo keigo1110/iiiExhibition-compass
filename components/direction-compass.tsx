@@ -7,15 +7,66 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 
+// iOSのDeviceOrientationEvent拡張インターフェース
+interface DeviceOrientationEventWithWebkit extends DeviceOrientationEvent {
+  webkitCompassHeading?: number;
+}
+
 export function DirectionCompass() {
   const [currentPosition, setCurrentPosition] = useState({ latitude: 0, longitude: 0 })
   const [destination, setDestination] = useState({ latitude: 35.7114, longitude: 139.7611 })
-  const [heading, setHeading] = useState(0)
+  const [compass, setCompass] = useState(0)
   const [direction, setDirection] = useState(0)
   const [permissionGranted, setPermissionGranted] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const requestDeviceOrientationPermission = async () => {
+    try {
+      const requestPermission = (DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<string> }).requestPermission
+
+      if (requestPermission) {
+        // iOS 13+
+        const response = await requestPermission()
+        if (response === 'granted') {
+          setPermissionGranted(true)
+          initializeCompass()
+        } else {
+          setError('方位センサーの使用が許可されませんでした。')
+        }
+      } else {
+        // Android または 古いiOS
+        setPermissionGranted(true)
+        initializeCompass()
+      }
+    } catch (err) {
+      setError('方位センサーの初期化に失敗しました。')
+      console.error(err)
+    }
+  }
+
+  const initializeCompass = () => {
+    window.addEventListener('deviceorientationabsolute', handleOrientation)
+    // フォールバック: absolute が使えない場合
+    window.addEventListener('deviceorientation', handleOrientation)
+  }
+
+  const handleOrientation = (event: DeviceOrientationEvent) => {
+    // iOS
+    const compassEvent = event as DeviceOrientationEventWithWebkit
+    if (typeof compassEvent.webkitCompassHeading === 'number') {
+      setCompass(compassEvent.webkitCompassHeading)
+      return
+    }
+
+    // Android
+    const alpha = event.alpha
+    if (alpha !== null) {
+      // Android では alpha を 360 - alpha で変換する必要がある
+      setCompass(360 - alpha)
+    }
+  }
 
   useEffect(() => {
-    // 高精度で位置情報の取得
     const watchId = navigator.geolocation.watchPosition(
       (position) => {
         setCurrentPosition({
@@ -23,56 +74,37 @@ export function DirectionCompass() {
           longitude: position.coords.longitude
         })
       },
-      (error) => console.error('位置情報の取得に失敗しました:', error),
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 3000 } // 更新頻度を上げる
+      (positionError: GeolocationPositionError) => {
+        setError('位置情報の取得に失敗しました。')
+        console.error('Geolocation error:', positionError.message)
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 5000,
+        timeout: 3000
+      }
     )
 
     return () => {
       navigator.geolocation.clearWatch(watchId)
+      window.removeEventListener('deviceorientationabsolute', handleOrientation)
+      window.removeEventListener('deviceorientation', handleOrientation)
     }
   }, [])
 
-  // デバイスの向きの取得をユーザーのタップで開始
-  const requestDeviceOrientationPermission = () => {
-    const requestPermission = (DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<string> }).requestPermission
-
-    if (requestPermission) {
-      requestPermission()
-        .then((response: string) => {
-          if (response === 'granted') {
-            setPermissionGranted(true)
-            window.addEventListener('deviceorientation', handleOrientation)
-          }
-        })
-        .catch(console.error)
-    } else {
-      setPermissionGranted(true)
-      window.addEventListener('deviceorientation', handleOrientation)
-    }
-  }
-
-  const handleOrientation = (event: DeviceOrientationEvent) => {
-    console.log("Device heading:", event.alpha) // デバッグ用
-    setHeading(event.alpha ?? 0)
-  }
-
   useEffect(() => {
-    // 目的地の方向を計算
     const y = Math.sin(toRadians(destination.longitude - currentPosition.longitude))
     const x = Math.cos(toRadians(currentPosition.latitude)) * Math.tan(toRadians(destination.latitude)) -
               Math.sin(toRadians(currentPosition.latitude)) * Math.cos(toRadians(destination.longitude - currentPosition.longitude))
 
     let bearing = Math.atan2(y, x)
     bearing = toDegrees(bearing)
-    bearing = (bearing + 360) % 360 // 方角を0-360度に正規化
+    bearing = (bearing + 360) % 360
 
-    // 相対的な方角を計算
-    const relativeDirection = (bearing - heading + 360) % 360
+    // コンパスの値を考慮して相対的な方向を計算
+    const relativeDirection = (bearing - compass + 360) % 360
     setDirection(relativeDirection)
-
-    // デバッグ用
-    console.log("Calculated bearing:", bearing, "Relative direction:", relativeDirection)
-  }, [currentPosition, destination, heading])
+  }, [currentPosition, destination, compass])
 
   const toRadians = (degrees: number) => degrees * (Math.PI / 180)
   const toDegrees = (radians: number) => radians * (180 / Math.PI)
@@ -82,7 +114,7 @@ export function DirectionCompass() {
     if (!isNaN(lat) && !isNaN(lon)) {
       setDestination({ latitude: lat, longitude: lon })
     } else {
-      console.error("Invalid destination coordinates")
+      setError("無効な座標が入力されました。")
     }
   }
 
@@ -93,10 +125,18 @@ export function DirectionCompass() {
         <CardDescription>目的地の方向を指し示します</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {error && (
+          <div className="p-4 mb-4 text-sm text-red-800 bg-red-100 rounded-lg">
+            {error}
+          </div>
+        )}
         <div className="text-center">
           <ArrowUp
             className="mx-auto text-primary"
-            style={{ transform: `rotate(${direction}deg)`, transition: 'transform 0.2s ease-out' }} // 0.2秒に短縮
+            style={{
+              transform: `rotate(${direction}deg)`,
+              transition: 'transform 0.2s ease-out'
+            }}
             size={100}
           />
         </div>
@@ -111,12 +151,15 @@ export function DirectionCompass() {
           />
         </div>
         {!permissionGranted && (
-          <Button onClick={requestDeviceOrientationPermission}>デバイスの向きを許可</Button>
+          <Button onClick={requestDeviceOrientationPermission}>
+            デバイスの向きを許可
+          </Button>
         )}
       </CardContent>
-      <CardFooter className="flex justify-between">
+      <CardFooter className="flex flex-col space-y-2">
         <div>現在位置: {currentPosition.latitude.toFixed(4)}, {currentPosition.longitude.toFixed(4)}</div>
         <div>方向: {Math.round(direction)}°</div>
+        <div>コンパス: {Math.round(compass)}°</div>
       </CardFooter>
     </Card>
   )
