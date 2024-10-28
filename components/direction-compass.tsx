@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { ArrowUp } from 'lucide-react'
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -28,11 +27,14 @@ export function DirectionCompass() {
 
     // デバイスの向きの取得
     const handleOrientation = (event: DeviceOrientationEvent) => {
-      setHeading(event.alpha || 0)
+      setHeading(event.alpha ?? 0)
     }
 
-    if (typeof DeviceOrientationEvent !== 'undefined' && typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
-      (DeviceOrientationEvent as any).requestPermission()
+    // requestPermission の型チェック
+    const requestPermission = (DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<string> }).requestPermission
+
+    if (requestPermission) {
+      requestPermission()
         .then((response: string) => {
           if (response === 'granted') {
             window.addEventListener('deviceorientation', handleOrientation)
@@ -68,6 +70,8 @@ export function DirectionCompass() {
     const [lat, lon] = e.target.value.split(',').map(Number)
     if (!isNaN(lat) && !isNaN(lon)) {
       setDestination({ latitude: lat, longitude: lon })
+    } else {
+      console.error("Invalid destination coordinates")
     }
   }
 
