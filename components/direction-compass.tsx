@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 
 export function DirectionCompass() {
   const [currentPosition, setCurrentPosition] = useState({ latitude: 0, longitude: 0 })
-  const [destination, setDestination] = useState({ latitude: 35.6812, longitude: 139.7671 }) // デフォルトは東京タワー
+  const [destination, setDestination] = useState({ latitude: 35.7114, longitude: 139.7611 })
   const [heading, setHeading] = useState(0)
   const [direction, setDirection] = useState(0)
   const [permissionGranted, setPermissionGranted] = useState(false)
