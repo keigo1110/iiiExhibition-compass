@@ -5,12 +5,14 @@ import { ArrowUp } from 'lucide-react'
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 
 export function DirectionCompass() {
   const [currentPosition, setCurrentPosition] = useState({ latitude: 0, longitude: 0 })
   const [destination, setDestination] = useState({ latitude: 35.6812, longitude: 139.7671 }) // デフォルトは東京タワー
   const [heading, setHeading] = useState(0)
   const [direction, setDirection] = useState(0)
+  const [permissionGranted, setPermissionGranted] = useState(false)
 
   useEffect(() => {
     // 現在位置の取得
@@ -25,31 +27,34 @@ export function DirectionCompass() {
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
     )
 
-    // デバイスの向きの取得
-    const handleOrientation = (event: DeviceOrientationEvent) => {
-      setHeading(event.alpha ?? 0)
+    return () => {
+      navigator.geolocation.clearWatch(watchId)
     }
+  }, [])
 
-    // requestPermission の型チェック
+  // デバイスの向きの取得をユーザーのタップで開始
+  const requestDeviceOrientationPermission = () => {
     const requestPermission = (DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<string> }).requestPermission
 
     if (requestPermission) {
       requestPermission()
         .then((response: string) => {
           if (response === 'granted') {
+            setPermissionGranted(true)
             window.addEventListener('deviceorientation', handleOrientation)
           }
         })
         .catch(console.error)
     } else {
+      setPermissionGranted(true)
       window.addEventListener('deviceorientation', handleOrientation)
     }
+  }
 
-    return () => {
-      navigator.geolocation.clearWatch(watchId)
-      window.removeEventListener('deviceorientation', handleOrientation)
-    }
-  }, [])
+  const handleOrientation = (event: DeviceOrientationEvent) => {
+    console.log("Device heading:", event.alpha) // デバッグ用
+    setHeading(event.alpha ?? 0)
+  }
 
   useEffect(() => {
     // 目的地の方向を計算
@@ -65,7 +70,6 @@ export function DirectionCompass() {
     const relativeDirection = (bearing - heading + 360) % 360
     setDirection(relativeDirection)
   }, [currentPosition, destination, heading])
-
 
   const toRadians = (degrees: number) => degrees * (Math.PI / 180)
   const toDegrees = (radians: number) => radians * (180 / Math.PI)
@@ -103,6 +107,9 @@ export function DirectionCompass() {
             defaultValue={`${destination.latitude},${destination.longitude}`}
           />
         </div>
+        {!permissionGranted && (
+          <Button onClick={requestDeviceOrientationPermission}>デバイスの向きを許可</Button>
+        )}
       </CardContent>
       <CardFooter className="flex justify-between">
         <div>現在位置: {currentPosition.latitude.toFixed(4)}, {currentPosition.longitude.toFixed(4)}</div>
