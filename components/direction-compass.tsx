@@ -15,7 +15,7 @@ export function DirectionCompass() {
   const [permissionGranted, setPermissionGranted] = useState(false)
 
   useEffect(() => {
-    // 現在位置の取得
+    // 高精度で位置情報の取得
     const watchId = navigator.geolocation.watchPosition(
       (position) => {
         setCurrentPosition({
@@ -24,7 +24,7 @@ export function DirectionCompass() {
         })
       },
       (error) => console.error('位置情報の取得に失敗しました:', error),
-      { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 3000 } // 更新頻度を上げる
     )
 
     return () => {
@@ -69,6 +69,9 @@ export function DirectionCompass() {
     // 相対的な方角を計算
     const relativeDirection = (bearing - heading + 360) % 360
     setDirection(relativeDirection)
+
+    // デバッグ用
+    console.log("Calculated bearing:", bearing, "Relative direction:", relativeDirection)
   }, [currentPosition, destination, heading])
 
   const toRadians = (degrees: number) => degrees * (Math.PI / 180)
@@ -93,7 +96,7 @@ export function DirectionCompass() {
         <div className="text-center">
           <ArrowUp
             className="mx-auto text-primary"
-            style={{ transform: `rotate(${direction}deg)`, transition: 'transform 0.5s ease-out' }}
+            style={{ transform: `rotate(${direction}deg)`, transition: 'transform 0.2s ease-out' }} // 0.2秒に短縮
             size={100}
           />
         </div>
@@ -102,7 +105,7 @@ export function DirectionCompass() {
           <Input
             id="destination"
             type="text"
-            placeholder="35.6812,139.7671"
+            placeholder="35.7114,139.7611"
             onChange={handleDestinationChange}
             defaultValue={`${destination.latitude},${destination.longitude}`}
           />
