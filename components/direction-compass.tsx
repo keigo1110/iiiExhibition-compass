@@ -39,179 +39,98 @@ export function DirectionCompass() {
   });
 
   const orientationListenerRef = useRef<OrientationListener | null>(null)
+  const debugMessagesRef = useRef<string[]>([]);
 
-  useEffect(() => {
-    setIsIOS(/iPad|iPhone|iPod/.test(navigator.userAgent))
-  }, [])
-
-  // センサーのデバッグ情報を更新
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const now = Date.now();
-      const timeSinceLastUpdate = now - rawSensorData.timestamp;
-
-      if (timeSinceLastUpdate > 1000) {
-        setDebug(prev => `${prev}\nSensor not updating! Last update: ${timeSinceLastUpdate}ms ago`);
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [rawSensorData.timestamp]);
+  // デバッグメッセージの管理を改善
+  const updateDebug = useCallback((message: string) => {
+    debugMessagesRef.current = [message];
+    setDebug(message);
+  }, []);
 
   const handleOrientation = useCallback((event: DeviceOrientationEvent) => {
     try {
-      const compassEvent = event as DeviceOrientationEventWithWebkit
+      const compassEvent = event as DeviceOrientationEventWithWebkit;
+      const now = Date.now();
 
-      // 生のセンサーデータを保存
+      // センサーデータを更新
       setRawSensorData({
         alpha: event.alpha,
         beta: event.beta,
         gamma: event.gamma,
         absolute: event.absolute,
-        timestamp: Date.now()
+        timestamp: now
       });
 
       // iOS の場合
       if (isIOS && typeof compassEvent.webkitCompassHeading === 'number') {
         const newCompass = compassEvent.webkitCompassHeading;
         setCompass(newCompass);
-        setDebug(`iOS: heading=${newCompass.toFixed(1)}°`);
+        updateDebug(`iOS: heading=${newCompass.toFixed(1)}°`);
         setError(null);
         return;
       }
 
       // Androidの場合
       if (!isIOS && typeof event.alpha === 'number') {
+        const alpha = event.alpha;
         const beta = event.beta || 0;
         const gamma = event.gamma || 0;
 
-        if (Math.abs(beta) > 50 || Math.abs(gamma) > 50) {
-          setError('デバイスをより水平に保持してください');
+        // デバイスの傾きチェックを緩和
+        if (Math.abs(beta) > 70 || Math.abs(gamma) > 70) {
+          setError('デバイスを水平に近づけてください');
           return;
         }
 
-        let heading = event.alpha;
+        // 画面の向きに基づく補正を改善
+        let heading = alpha;
         const screenAngle = window.screen.orientation?.angle || 0;
-
-        // 画面の向きに応じた補正
-        switch (screenAngle) {
-          case 90:
-            heading = (heading + 90) % 360;
-            break;
-          case -90:
-            heading = (heading - 90 + 360) % 360;
-            break;
-          case 180:
-            heading = (heading + 180) % 360;
-            break;
-        }
-
-        // 方位角への変換（時計回りから反時計回りへ）
-        heading = (360 - heading) % 360;
+        heading = (360 - ((heading + screenAngle) % 360)) % 360;
 
         setCompass(heading);
-        setDebug(
-          `Android: raw=${event.alpha.toFixed(1)}° ` +
+        updateDebug(
+          `Android: α=${alpha.toFixed(1)}° ` +
           `screen=${screenAngle}° ` +
-          `corrected=${heading.toFixed(1)}° ` +
-          `beta=${beta.toFixed(1)}° ` +
-          `gamma=${gamma.toFixed(1)}° ` +
-          `absolute=${event.absolute}`
+          `heading=${heading.toFixed(1)}°`
         );
         setError(null);
       }
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error('Orientation handling error:', error);
-        setDebug(`Error: ${error.message}`);
-      }
-      setError('方位の取得中にエラーが発生しました。');
+    } catch (error) {
+      console.error('Orientation error:', error);
+      setError('方位の取得中にエラーが発生しました');
     }
-  }, [isIOS]);
+  }, [isIOS, updateDebug]);
 
   const removeOrientationListener = useCallback(() => {
     if (orientationListenerRef.current) {
-      try {
-        window.removeEventListener('deviceorientationabsolute', orientationListenerRef.current)
-      } catch (error: unknown) {
-        if (error instanceof Error) {
-          console.log('deviceorientationabsolute listener removal failed:', error.message)
-        }
-      }
-
-      try {
-        window.removeEventListener('deviceorientation', orientationListenerRef.current)
-      } catch (error: unknown) {
-        if (error instanceof Error) {
-          console.log('deviceorientation listener removal failed:', error.message)
-        }
-      }
-
-      orientationListenerRef.current = null
+      window.removeEventListener('deviceorientationabsolute', orientationListenerRef.current);
+      window.removeEventListener('deviceorientation', orientationListenerRef.current);
+      orientationListenerRef.current = null;
     }
-  }, [])
+  }, []);
 
   const initializeCompass = useCallback(() => {
+    removeOrientationListener();
+
+    const listener: OrientationListener = (event: DeviceOrientationEvent) => {
+      handleOrientation(event);
+    };
+
+    orientationListenerRef.current = listener;
+
     try {
-      removeOrientationListener()
-
-      const listener: OrientationListener = (event: DeviceOrientationEvent) => {
-        handleOrientation(event)
-      }
-
-      orientationListenerRef.current = listener
-      let eventAdded = false
-
-      if (!isIOS) {
-        if ('ondeviceorientationabsolute' in window) {
-          try {
-            window.addEventListener('deviceorientationabsolute', listener)
-            eventAdded = true
-            setDebug('Using deviceorientationabsolute (Android)')
-          } catch (error: unknown) {
-            if (error instanceof Error) {
-              console.log('Failed to add deviceorientationabsolute listener:', error.message)
-              setDebug('Failed absolute: ' + error.message)
-            }
-          }
-        }
-
-        if (!eventAdded) {
-          try {
-            window.addEventListener('deviceorientation', listener)
-            eventAdded = true
-            setDebug('Using deviceorientation (Android fallback)')
-          } catch (error: unknown) {
-            if (error instanceof Error) {
-              console.log('Failed to add deviceorientation listener:', error.message)
-              setDebug('Failed orientation: ' + error.message)
-            }
-          }
-        }
+      if (!isIOS && 'ondeviceorientationabsolute' in window) {
+        window.addEventListener('deviceorientationabsolute', listener);
+        updateDebug('Using deviceorientationabsolute');
       } else {
-        try {
-          window.addEventListener('deviceorientation', listener)
-          eventAdded = true
-          setDebug('Using deviceorientation (iOS)')
-        } catch (error: unknown) {
-          if (error instanceof Error) {
-            console.log('Failed to add deviceorientation listener:', error.message)
-            setDebug('Failed orientation: ' + error.message)
-          }
-        }
+        window.addEventListener('deviceorientation', listener);
+        updateDebug('Using deviceorientation');
       }
-
-      if (!eventAdded) {
-        setError('方位センサーの初期化に失敗しました。')
-      }
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error('Compass initialization error:', error.message)
-        setDebug('Init error: ' + error.message)
-      }
-      setError('方位センサーの初期化中にエラーが発生しました。')
+    } catch (error) {
+      console.error('Compass initialization error:', error);
+      setError('コンパスの初期化に失敗しました');
     }
-  }, [handleOrientation, removeOrientationListener, isIOS])
+  }, [handleOrientation, removeOrientationListener, isIOS, updateDebug]);
 
   const requestDeviceOrientationPermission = async () => {
     try {
@@ -230,63 +149,14 @@ export function DirectionCompass() {
         setPermissionGranted(true)
         initializeCompass()
       }
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error('Permission error:', error.message)
-      }
+    } catch (error) {
+      console.error('Permission error:', error);
       if (!isIOS) {
         setPermissionGranted(true)
         initializeCompass()
       }
     }
-  }
-
-  useEffect(() => {
-    return () => {
-      removeOrientationListener()
-    }
-  }, [removeOrientationListener])
-
-  useEffect(() => {
-    const watchId = navigator.geolocation.watchPosition(
-      (position) => {
-        setCurrentPosition({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude
-        })
-        setError(null)
-      },
-      (positionError) => {
-        setError('位置情報の取得に失敗しました。')
-        console.error('Geolocation error:', positionError)
-      },
-      {
-        enableHighAccuracy: true,
-        maximumAge: 5000,
-        timeout: 3000
-      }
-    )
-
-    return () => {
-      navigator.geolocation.clearWatch(watchId)
-    }
-  }, [])
-
-  const toRadians = useCallback((degrees: number) => degrees * (Math.PI / 180), [])
-  const toDegrees = useCallback((radians: number) => radians * (180 / Math.PI), [])
-
-  useEffect(() => {
-    const y = Math.sin(toRadians(destination.longitude - currentPosition.longitude))
-    const x = Math.cos(toRadians(currentPosition.latitude)) * Math.tan(toRadians(destination.latitude)) -
-              Math.sin(toRadians(currentPosition.latitude)) * Math.cos(toRadians(destination.longitude - currentPosition.longitude))
-
-    let bearing = Math.atan2(y, x)
-    bearing = toDegrees(bearing)
-    bearing = (bearing + 360) % 360
-
-    const relativeDirection = (bearing - compass + 360) % 360
-    setDirection(relativeDirection)
-  }, [currentPosition, destination, compass, toRadians, toDegrees])
+  };
 
   const handleDestinationChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     try {
@@ -297,13 +167,83 @@ export function DirectionCompass() {
       } else {
         setError("無効な座標が入力されました。")
       }
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error('Destination input error:', error.message)
-      }
+    } catch (error) {
+      console.error('Destination input error:', error);
       setError("座標の形式が正しくありません。")
     }
-  }, [])
+  }, []);
+
+  // iOS/Android検出
+  useEffect(() => {
+    setIsIOS(/iPad|iPhone|iPod/.test(navigator.userAgent))
+  }, []);
+
+  // センサーの状態監視
+  useEffect(() => {
+    const checkSensorStatus = () => {
+      const now = Date.now();
+      const timeSinceLastUpdate = now - rawSensorData.timestamp;
+
+      if (timeSinceLastUpdate > 1000 && permissionGranted) {
+        updateDebug(`Sensor not responding (${timeSinceLastUpdate}ms since last update)`);
+        // センサーが応答しない場合、リスナーを再初期化
+        initializeCompass();
+      }
+    };
+
+    const timeoutId = window.setInterval(checkSensorStatus, 2000);
+    return () => window.clearInterval(timeoutId);
+  }, [rawSensorData.timestamp, permissionGranted, initializeCompass, updateDebug]);
+
+  // クリーンアップ
+  useEffect(() => {
+    return () => {
+      removeOrientationListener();
+    };
+  }, [removeOrientationListener]);
+
+  // 位置情報の監視
+  useEffect(() => {
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        setCurrentPosition({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude
+        });
+        setError(null);
+      },
+      (positionError) => {
+        setError('位置情報の取得に失敗しました。');
+        console.error('Geolocation error:', positionError);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 5000,
+        timeout: 3000
+      }
+    );
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+    };
+  }, []);
+
+  // 方位計算
+  const toRadians = useCallback((degrees: number) => degrees * (Math.PI / 180), []);
+  const toDegrees = useCallback((radians: number) => radians * (180 / Math.PI), []);
+
+  useEffect(() => {
+    const y = Math.sin(toRadians(destination.longitude - currentPosition.longitude));
+    const x = Math.cos(toRadians(currentPosition.latitude)) * Math.tan(toRadians(destination.latitude)) -
+              Math.sin(toRadians(currentPosition.latitude)) * Math.cos(toRadians(destination.longitude - currentPosition.longitude));
+
+    let bearing = Math.atan2(y, x);
+    bearing = toDegrees(bearing);
+    bearing = (bearing + 360) % 360;
+
+    const relativeDirection = (bearing - compass + 360) % 360;
+    setDirection(relativeDirection);
+  }, [currentPosition, destination, compass, toRadians, toDegrees]);
 
   return (
     <Card className="w-full max-w-md mx-auto">
@@ -342,7 +282,7 @@ export function DirectionCompass() {
             デバイスの向きを許可
           </Button>
         )}
-        <div className="space-y-2 text-xs text-gray-500 break-all">
+        <div className="space-y-2 text-xs text-gray-500">
           <div>{debug}</div>
           <div>
             Raw Sensor Data:
@@ -363,5 +303,5 @@ export function DirectionCompass() {
         <div>コンパス: {Math.round(compass)}°</div>
       </CardFooter>
     </Card>
-  )
+  );
 }
