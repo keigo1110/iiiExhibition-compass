@@ -21,6 +21,7 @@ export function DirectionCompass() {
   const [permissionGranted, setPermissionGranted] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isIOS, setIsIOS] = useState(false)
+  const [debug, setDebug] = useState<string>('')
 
   const orientationListenerRef = useRef<OrientationListener | null>(null)
 
@@ -35,24 +36,57 @@ export function DirectionCompass() {
 
       if (isIOS && typeof compassEvent.webkitCompassHeading === 'number') {
         setCompass(compassEvent.webkitCompassHeading)
+        setDebug(`iOS: webkitCompassHeading=${compassEvent.webkitCompassHeading}`)
         setError(null)
         return
       }
 
+      // Androidの場合の処理
       if (event.alpha !== null) {
-        let heading = event.alpha
+        let heading = event.alpha;
+        const beta = event.beta;
+        const gamma = event.gamma;
 
-        if (window.screen.orientation) {
-          const screenOrientation = window.screen.orientation.angle || 0
-          heading = (360 - heading + screenOrientation) % 360
+        // デバッグ情報を更新
+        setDebug(`Android: alpha=${heading.toFixed(1)}, beta=${beta?.toFixed(1)}, gamma=${gamma?.toFixed(1)}`)
+
+        // デバイスが傾いている場合の補正
+        if (typeof beta === 'number' && typeof gamma === 'number') {
+          if (beta > 40 || beta < -40 || gamma > 40 || gamma < -40) {
+            setError('デバイスを水平に保持してください')
+            return
+          }
         }
 
+        // 画面の向きに応じた補正
+        if (window.screen.orientation) {
+          const screenOrientation = window.screen.orientation.angle || 0
+          switch (screenOrientation) {
+            case 0:   // ポートレート
+              heading = heading
+              break
+            case 90:  // 左回転
+              heading = heading + 90
+              break
+            case -90: // 右回転
+              heading = heading - 90
+              break
+            case 180: // 上下逆
+              heading = heading + 180
+              break
+          }
+          heading = (heading + 360) % 360
+        }
+
+        // コンパスの値を設定（北が0度になるように調整）
+        heading = (360 - heading) % 360
         setCompass(heading)
         setError(null)
       }
     } catch (error: unknown) {
       if (error instanceof Error) {
         console.error('Orientation handling error:', error.message)
+        setDebug(`Error: ${error.message}`)
       }
       setError('方位の取得中にエラーが発生しました。')
     }
@@ -86,38 +120,39 @@ export function DirectionCompass() {
     try {
       removeOrientationListener()
 
-      // リスナー関数を作成
       const listener: OrientationListener = (event: DeviceOrientationEvent) => {
         handleOrientation(event)
       }
 
-      // リスナーを保存
       orientationListenerRef.current = listener
 
       let eventAdded = false
 
-      // まず絶対方位のイベントを試す
-      if ('ondeviceorientationabsolute' in window) {
+      // Android向けの処理を優先
+      if (!isIOS && 'ondeviceorientationabsolute' in window) {
         try {
           window.addEventListener('deviceorientationabsolute', listener)
           eventAdded = true
           console.log('Added deviceorientationabsolute listener')
+          setDebug('Using deviceorientationabsolute')
         } catch (error: unknown) {
           if (error instanceof Error) {
             console.log('Failed to add deviceorientationabsolute listener:', error.message)
+            setDebug('Failed absolute: ' + error.message)
           }
         }
       }
 
-      // 絶対方位が使えない場合は通常のorientationイベントを使用
       if (!eventAdded) {
         try {
           window.addEventListener('deviceorientation', listener)
           eventAdded = true
           console.log('Added deviceorientation listener')
+          setDebug('Using deviceorientation')
         } catch (error: unknown) {
           if (error instanceof Error) {
             console.log('Failed to add deviceorientation listener:', error.message)
+            setDebug('Failed orientation: ' + error.message)
           }
         }
       }
@@ -130,10 +165,11 @@ export function DirectionCompass() {
     } catch (error: unknown) {
       if (error instanceof Error) {
         console.error('Compass initialization error:', error.message)
+        setDebug('Init error: ' + error.message)
       }
       setError('方位センサーの初期化中にエラーが発生しました。')
     }
-  }, [handleOrientation, removeOrientationListener])
+  }, [handleOrientation, removeOrientationListener, isIOS])
 
   // 位置情報の監視
   useEffect(() => {
@@ -269,6 +305,9 @@ export function DirectionCompass() {
             デバイスの向きを許可
           </Button>
         )}
+        <div className="text-xs text-gray-500 break-all">
+          {debug}
+        </div>
       </CardContent>
       <CardFooter className="flex flex-col space-y-2">
         <div>現在位置: {currentPosition.latitude.toFixed(4)}, {currentPosition.longitude.toFixed(4)}</div>
