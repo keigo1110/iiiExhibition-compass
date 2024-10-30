@@ -68,13 +68,17 @@ export function DirectionCompass() {
       const compassEvent = event as DeviceOrientationEventWithWebkit
 
       // センサーデータを常に保存（デバッグ用）
-      setRawSensorData({
-        alpha: event.alpha,
-        beta: event.beta,
-        gamma: event.gamma,
-        absolute: event.absolute,
-        timestamp: Date.now()
-      });
+      if (event.alpha !== null && event.beta !== null && event.gamma !== null) {
+        setRawSensorData({
+          alpha: event.alpha,
+          beta: event.beta,
+          gamma: event.gamma,
+          absolute: event.absolute,
+          timestamp: Date.now()
+        });
+      } else {
+        setDebug('Warning: Sensor data is null. Ensure that your device supports orientation sensors and that permissions are granted.');
+      }
 
       // iOS の場合
       if (isIOS && typeof compassEvent.webkitCompassHeading === 'number') {
@@ -157,9 +161,11 @@ export function DirectionCompass() {
         if ('ondeviceorientationabsolute' in window) {
           (window as Window).addEventListener('deviceorientationabsolute', listener);
           setDebug('Using deviceorientationabsolute');
-        } else {
+        } else if ('ondeviceorientation' in window) {
           (window as Window).addEventListener('deviceorientation', listener);
           setDebug('Using deviceorientation');
+        } else {
+          setError('お使いのデバイスでは方位センサーがサポートされていないようです。');
         }
       } else {
         // iOS向けの処理
@@ -317,11 +323,11 @@ export function DirectionCompass() {
           <div>
             Raw Sensor Data:
             <br />
-            α: {rawSensorData.alpha?.toFixed(1) ?? 'N/A'}°
+            α: {rawSensorData.alpha !== null ? rawSensorData.alpha.toFixed(1) : 'N/A'}°
             <br />
-            β: {rawSensorData.beta?.toFixed(1) ?? 'N/A'}°
+            β: {rawSensorData.beta !== null ? rawSensorData.beta.toFixed(1) : 'N/A'}°
             <br />
-            γ: {rawSensorData.gamma?.toFixed(1) ?? 'N/A'}°
+            γ: {rawSensorData.gamma !== null ? rawSensorData.gamma.toFixed(1) : 'N/A'}°
             <br />
             Absolute: {rawSensorData.absolute ? 'Yes' : 'No'}
           </div>
